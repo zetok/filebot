@@ -51,12 +51,18 @@ fn main() {
     // Since i/o is blocking and tox doesn't implement Clone,
     // separate task is used to read commands and send them through channel
     let (cmd_tx, cmd_rx) = channel();
+    // not sure if it's the best way to terminate a task
+    let (exit_tx, exit_rx) = channel::<bool>();
     spawn(proc() {
         let mut stdin = stdin();
         loop {
+            if let Ok(_) = exit_rx.try_recv() {
+                break;
+            }
             if let Ok(line) = stdin.read_line() {
                 cmd_tx.send(line);
             }
+            std::io::timer::sleep(Duration::milliseconds(100));
         }
     });
 
@@ -92,7 +98,7 @@ fn main() {
     let bootstrap_key = from_str(BOOTSTRAP_KEY).unwrap();
     tox.bootstrap_from_address(BOOTSTRAP_IP.to_string(), BOOTSTRAP_PORT, box bootstrap_key).unwrap();
 
-    println!("Bot key: {}", tox.get_address());
+    println!("info Bot key: {}", tox.get_address());
 
     let mut fqueue = FileQueue::new(&tox);
 
@@ -147,9 +153,13 @@ fn main() {
         }
 
         if let Ok(line) = cmd_rx.try_recv() {
-            let mut lnit = line.split(' ');
+            let mut lnit = line.trim_chars('\n').split(' ');
             match lnit.next() {
                 Some("status") => tox.set_status_message(lnit.collect::<Vec<&str>>().connect(" ")).unwrap(),
+                Some("kill") => {
+                    exit_tx.send(true);
+                    return;
+                },
                 _ => {},
             }
         }
