@@ -1,0 +1,8 @@
+[package]
+
+name = "filebot"
+version = "0.0.1"
+authors = ["Сухарик <suhr@i2pmail.org>"]
+
+[dependencies.tox]
+git = "https://github.com/mahkoh/rust-tox.git"
