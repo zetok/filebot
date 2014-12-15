@@ -10,6 +10,7 @@ pub enum FileState {
     Active,
     Paused,
     Waiting,
+    Broken,
 }
 
 pub struct FileReceiver {
@@ -17,7 +18,7 @@ pub struct FileReceiver {
     fid: u8,
     file: File,
     state: FileState,
-    received: uint,
+    received: u64,
 }
 
 impl FileReceiver {
@@ -37,7 +38,7 @@ impl FileReceiver {
 
     pub fn write(&mut self, data: Vec<u8>) -> IoResult<()> {
         try!(self.file.write(&*data));
-        self.received += data.len();
+        self.received += data.len() as u64;
         Ok(())
     }
 }
@@ -58,16 +59,9 @@ impl<'a> FileQueue<'a> {
     }
 
     pub fn add(&mut self, fnum: i32, fid: u8, name: Vec<u8>) {
-        let fname = match ::std::str::from_utf8(&*name) {
-            Some(n) => n,
+        let fr = match ::std::str::from_utf8(&*name).and_then(|fname| FileReceiver::new(fnum, fid, fname).ok()) {
+            Some(fr) => fr,
             None => {
-                self.tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
-                return
-            }
-        };
-        let fr = match FileReceiver::new(fnum, fid, fname) {
-            Ok(fr) => fr,
-            Err(_) => {
                 self.tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
                 return
             },
@@ -77,18 +71,15 @@ impl<'a> FileQueue<'a> {
             self.tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Accept as u8, Vec::new());
         } else {
             self.waiting.push(fr);
-            debug!("achtung: not added {}/{}", fnum, fid);
         }
     }
 
     pub fn write(&mut self, fnum: i32, fid: u8, data: Vec<u8>) {
         let pos = self.active.iter_mut().position(|fr| fr.fnum == fnum && fr.fid == fid).unwrap();
-        match self.active[pos].write(data) {
-            Ok(()) => (),
-            Err(_) => {
-                self.tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
-                self.remove(fnum, fid);
-            },
+
+        if self.active[pos].write(data).is_err() {
+            self.tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
+            self.remove(fnum, fid);
         }
     }
 
@@ -112,6 +103,30 @@ impl<'a> FileQueue<'a> {
 
     //pub fn pause(&self, fid: u8) {}
     //pub fn resume(){}
+
+    // FIXME: “Ya shalt not use replace self.active in place”, it said
+    // “cannot move out of dereference of &mut-pointer”, it said
+    pub fn offline(mut self, fnum: i32) -> FileQueue<'a> {
+        let (broken, active) = self.active.partition(|fr| fr.fnum == fnum && fr.state == Active);
+        self.active = active;
+        self.waiting.extend(broken.into_iter());
+        self.waiting.iter_mut().map(|fr| fr.state = Broken).fold((), |_,_| ());
+        self
+    }
+
+    pub fn online(&mut self, fnum: i32) {
+        let tox = self.tox;
+        self.waiting.iter_mut().map(|fr| {
+            if fr.state == Broken {
+                // Ad-hoc solution. Just because rust-tox API sucks.
+                let mut received = Vec::new();
+                received.write_le_u64(fr.received);
+                tox.file_send_control(fnum, TransferType::Receiving, fr.fid, ControlType::ResumeBroken as u8, received);
+                fr.state = Waiting;
+            }
+        }).fold((), |_,_| ());
+    }
+
     pub fn finished(&mut self, fnum: i32, fid: u8) -> String {
         let path = self.active.iter().find(|fr| fr.fnum == fnum && fr.fid == fid).unwrap()
                    .file.path().as_str().unwrap().to_string();
@@ -119,6 +134,7 @@ impl<'a> FileQueue<'a> {
         self.tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Finished as u8, Vec::new());
         path
     }
+
     pub fn remove(&mut self, fnum: i32, fid: u8) {
         if let Some(i) = self.active.iter().position(|fr| fr.fnum == fnum && fr.fid == fid) {
             match self.waiting.iter().position(|fr| fr.state == Active) {

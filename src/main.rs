@@ -16,7 +16,7 @@ use queue::*;
 
 mod queue;
 
-const MAX_FILE_SIZE: u64 = 60 * 1024 * 1024;
+const MAX_FILE_SIZE: u64 = 240 * 1024 * 1024;
 
 const BOOTSTRAP_IP: &'static str = "192.254.75.98";
 const BOOTSTRAP_PORT: u16 = 33445;
@@ -33,7 +33,7 @@ fn save(tox: &Tox, path: Option<&Path>, tock: &Receiver<()>) {
     match tock.try_recv() {
         Ok(_) => {
             let mut out = File::open_mode(path.unwrap(), Truncate, Write).unwrap();
-            match out.write(tox.save()[]) {
+            match out.write(&*tox.save()) {
                 Ok(_) => (),
                 Err(e) => {
                     error!("cannot save tox data: {}", e)
@@ -69,7 +69,7 @@ fn main() {
     let args = args();
     let path;   // pls, make a more elegant way to follow lifetimes
     let tox_save: Option<&Path>;
-    match args[] {
+    match &*args {
         [_] => {
             tox_save = None;
         },
@@ -90,7 +90,7 @@ fn main() {
             }
         },
         _ => {
-            usage(args[0][]);
+            usage(&*args[0]);
             return;
         }
     }
@@ -107,7 +107,7 @@ fn main() {
     loop {
         for ev in tox.events() {
             match ev {
-                FriendRequest(id, msg) => {
+                FriendRequest(id, _) => {
                     tox.add_friend_norequest(id).unwrap();
                 },
                 /*FriendMessage(fnum, msg) => {
@@ -120,27 +120,42 @@ fn main() {
                 FileSendRequest(fnum, fid, fsize, fname) => {
                     if fsize > MAX_FILE_SIZE {
                         tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
-                        tox.send_message(fnum, "File is too big, max allowed size is 60 MiB".to_string());
+                        tox.send_message(fnum, "File is too big, max allowed size is 240 MiB".to_string());
                     } else {
                         fqueue.add(fnum, fid, fname);
                     }
+                    // avoid saving tox data on file events
+                    continue;
                 },
                 FileData(fnum, fid, data) => {
                     fqueue.write(fnum, fid, data);
+                    continue;
                 },
                 FileControl(fnum, TransferType::Receiving, fid, ControlType::Finished, _) => {
                     let name = fqueue.finished(fnum, fid);
                     println!("finished {}", name);
+                    continue;
                 }
                 FileControl(fnum, TransferType::Receiving, fid, ControlType::Kill, _) => {
                     fqueue.remove(fnum, fid);
+                    continue;
                 }
                 FileControl(fnum, TransferType::Receiving, fid, ControlType::Pause, _) => {
                     fqueue.has_paused(fnum, fid);
+                    continue;
                 }
                 FileControl(fnum, TransferType::Receiving, fid, ControlType::Accept, _) => {
                     fqueue.has_resumed(fnum, fid);
+                    continue;
                 }
+                ConnectionStatusVar(fnum, ConnectionStatus::Offline) => {
+                    println!("offline {}", fnum);
+                    fqueue = fqueue.offline(fnum);
+                },
+                ConnectionStatusVar(fnum, ConnectionStatus::Online) => {
+                    println!("online {}", fnum);
+                    fqueue.online(fnum);
+                },
 
                 // GroupInvite(id, ref addr) if id == groupbot_id => {
                 //     tox.join_groupchat(id, addr.clone()).unwrap();
