@@ -1,4 +1,5 @@
 use std::io::{File, IoResult};
+use std::mem;
 use tox::core::*;
 use self::FileState::*;
 
@@ -104,14 +105,12 @@ impl<'a> FileQueue<'a> {
     //pub fn pause(&self, fid: u8) {}
     //pub fn resume(){}
 
-    // FIXME: “Ya shalt not use replace self.active in place”, it said
-    // “cannot move out of dereference of &mut-pointer”, it said
-    pub fn offline(mut self, fnum: i32) -> FileQueue<'a> {
-        let (broken, active) = self.active.partition(|fr| fr.fnum == fnum && fr.state == Active);
+    pub fn offline(&mut self, fnum: i32) {
+        let active = mem::replace(&mut self.active, Vec::new());
+        let (broken, active) = active.partition(|fr| fr.fnum == fnum && fr.state == Active);
         self.active = active;
         self.waiting.extend(broken.into_iter());
         self.waiting.iter_mut().map(|fr| fr.state = Broken).fold((), |_,_| ());
-        self
     }
 
     pub fn online(&mut self, fnum: i32) {

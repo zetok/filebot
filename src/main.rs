@@ -6,6 +6,7 @@ extern crate tox;
 #[phase(plugin, link)] extern crate log;
 
 use tox::core::*;
+//use tox::core::{Address};
 use std::io::stdin;
 use std::io::{File, Truncate, Write, FileNotFound};
 use std::io::Timer;
@@ -101,6 +102,7 @@ fn main() {
     println!("info Bot key: {}", tox.get_address());
 
     let mut fqueue = FileQueue::new(&tox);
+    let mut lords: Vec<Address> = Vec::new();
 
     let mut bomb = Timer::new().unwrap();   // Oh my God! JC! A bomb!
     let tick = bomb.periodic(Duration::milliseconds(500));
@@ -110,13 +112,15 @@ fn main() {
                 FriendRequest(id, _) => {
                     tox.add_friend_norequest(id).unwrap();
                 },
-                /*FriendMessage(fnum, msg) => {
-                    match msg[] {
-                        "invite" => tox.invite_friend(fnum, gchat).unwrap(),
-                        _ => ()
+                FriendMessage(fnum, msg) => {
+                    if lords.iter().any(|ref addr| addr.client_id() == &*tox.get_client_id(fnum).unwrap()) {
+                        match &*msg {
+                            "sleep" => println!("sleep"),
+                            //"invite" => tox.invite_friend(fnum, gchat).unwrap(),
+                            _ => ()
+                        }
                     }
-
-                },*/
+                },
                 FileSendRequest(fnum, fid, fsize, fname) => {
                     if fsize > MAX_FILE_SIZE {
                         tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
@@ -149,11 +153,9 @@ fn main() {
                     continue;
                 }
                 ConnectionStatusVar(fnum, ConnectionStatus::Offline) => {
-                    println!("offline {}", fnum);
-                    fqueue = fqueue.offline(fnum);
+                    fqueue.offline(fnum);
                 },
                 ConnectionStatusVar(fnum, ConnectionStatus::Online) => {
-                    println!("online {}", fnum);
                     fqueue.online(fnum);
                 },
 
@@ -171,6 +173,9 @@ fn main() {
             let mut lnit = line.trim_chars('\n').split(' ');
             match lnit.next() {
                 Some("status") => tox.set_status_message(lnit.collect::<Vec<&str>>().connect(" ")).unwrap(),
+                Some("lord") => if let Some(a) = from_str(&*lnit.collect::<Vec<&str>>().connect(" ")) {
+                    lords.push(a);
+                },
                 Some("kill") => {
                     exit_tx.send(true);
                     return;
