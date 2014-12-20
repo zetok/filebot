@@ -45,16 +45,13 @@ fn save(tox: &Tox, path: Option<&Path>, tock: &Receiver<()>) {
     }
 }
 
-fn main() {
-    let tox = Tox::new(ToxOptions::new()).unwrap();
-    tox.set_name(BOT_NAME.to_string()).unwrap();
-
-    // Since i/o is blocking and tox doesn't implement Clone,
-    // separate task is used to read commands and send them through channel
+// Since i/o is blocking and tox doesn't implement Clone,
+// separate task is used to read commands and send them through channel
+fn listen_cmds() -> (Receiver<String>, Sender<bool>) {
     let (cmd_tx, cmd_rx) = channel();
     // not sure if it's the best way to terminate a task
     let (exit_tx, exit_rx) = channel::<bool>();
-    spawn(proc() {
+    spawn(move || {
         let mut stdin = stdin();
         loop {
             if let Ok(_) = exit_rx.try_recv() {
@@ -66,6 +63,15 @@ fn main() {
             std::io::timer::sleep(Duration::milliseconds(100));
         }
     });
+
+    (cmd_rx, exit_tx)
+}
+
+fn main() {
+    let tox = Tox::new(ToxOptions::new()).unwrap();
+    tox.set_name(BOT_NAME.to_string()).unwrap();
+
+    let (cmd_rx, exit_tx) = listen_cmds();
 
     let args = args();
     let path;   // pls, make a more elegant way to follow lifetimes

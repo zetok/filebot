@@ -8,5 +8,5 @@ dependencies = [
 [[package]]
 name = "tox"
 version = "0.1.0"
-source = "git+https://github.com/suhr/rust-tox.git#4346d6ab657820df93407b0a154a026fcd1cf45e"
+source = "git+https://github.com/suhr/rust-tox.git#9e88b5e629128565bbf0665f778db57391d9a1d8"
 

@@ -76,9 +76,14 @@ impl<'a> FileQueue<'a> {
     }
 
     pub fn write(&mut self, fnum: i32, fid: u8, data: Vec<u8>) {
-        let pos = self.active.iter_mut().position(|fr| fr.fnum == fnum && fr.fid == fid).unwrap();
-
-        if self.active[pos].write(data).is_err() {
+        let err = match self.active.iter_mut().find(|fr| fr.fnum == fnum && fr.fid == fid) {
+            Some(fr) => fr.write(data),
+            None => match self.waiting.iter_mut().find(|fr| fr.fnum == fnum && fr.fid == fid) {
+                Some(fr) => fr.write(data),
+                None => return,
+            }
+        };
+        if err.is_err() {
             self.tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
             self.remove(fnum, fid);
         }
@@ -107,15 +112,17 @@ impl<'a> FileQueue<'a> {
 
     pub fn offline(&mut self, fnum: i32) {
         let active = mem::replace(&mut self.active, Vec::new());
-        let (broken, active) = active.partition(|fr| fr.fnum == fnum && fr.state == Active);
+        let (mut broken, active) = active.partition(|fr| fr.fnum == fnum && fr.state == Active);
+        for fr in broken.iter_mut() {
+            fr.state = Broken
+        }
         self.active = active;
         self.waiting.extend(broken.into_iter());
-        self.waiting.iter_mut().map(|fr| fr.state = Broken).fold((), |_,_| ());
     }
 
     pub fn online(&mut self, fnum: i32) {
         let tox = self.tox;
-        self.waiting.iter_mut().map(|fr| {
+        for fr in self.waiting.iter_mut() {
             if fr.state == Broken {
                 // Ad-hoc solution. Just because rust-tox API sucks.
                 let mut received = Vec::new();
@@ -123,7 +130,7 @@ impl<'a> FileQueue<'a> {
                 tox.file_send_control(fnum, TransferType::Receiving, fr.fid, ControlType::ResumeBroken as u8, received);
                 fr.state = Waiting;
             }
-        }).fold((), |_,_| ());
+        }
     }
 
     pub fn finished(&mut self, fnum: i32, fid: u8) -> String {
