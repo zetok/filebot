@@ -17,12 +17,12 @@ use queue::*;
 
 mod queue;
 
-const MAX_FILE_SIZE: u64 = 240 * 1024 * 1024;
+const MAX_FILE_SIZE: u64 = 2400 * 1024 * 1024; // some sane limit
 
-const BOOTSTRAP_IP: &'static str = "192.254.75.98";
+const BOOTSTRAP_IP: &'static str = "178.21.112.187";
 const BOOTSTRAP_PORT: u16 = 33445;
-const BOOTSTRAP_KEY: &'static str = "951C88B7E75C867418ACDB5D273821372BB5BD652740BCDF623A4FA293E75D2F";
-const BOT_NAME: &'static str = "filebot";
+const BOOTSTRAP_KEY: &'static str = "4B2C19E924972CB9B57732FB172F8A8604DE13EEDA2A6234E348983344B23057";
+const BOT_NAME: &'static str = "bot";
 
 fn usage(prog: &str) {
     println!("usage: {} dir [tox_save]", prog);
@@ -130,7 +130,7 @@ fn main() {
                 FileSendRequest(fnum, fid, fsize, fname) => {
                     if fsize > MAX_FILE_SIZE {
                         tox.file_send_control(fnum, TransferType::Receiving, fid, ControlType::Kill as u8, Vec::new()).unwrap();
-                        tox.send_message(fnum, "File is too big, max allowed size is 240 MiB".to_string());
+                        tox.send_message(fnum, "File is too big, max allowed size is 2400 MiB".to_string());
                     } else {
                         fqueue.add(fnum, fid, fname);
                     }
